@@ -7,3 +7,4 @@ scipy
 prophet
 statsmodels
 yfinance>=0.2.0
+fpdf
