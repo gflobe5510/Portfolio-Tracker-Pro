@@ -1,68 +1,50 @@
 # 📊 Portfolio Tracker Pro  
-**Live App:** [https://portfoliotrackerpro.streamlit.app/](https://portfoliotrackerpro.streamlit.app/)
+**Live App:** [https://portfoliotrackerpro.streamlit.app/](https://portfoliotrackerpro.streamlit.app/)  
+**GitHub:** [https://github.com/gflobe5510](https://github.com/gflobe5510)
 
-Track performance, visualize trends, and analyze risk—all in one streamlined, interactive dashboard built for financial analysts, investors, and data-driven professionals.
-
----
-
-## 🚀 Overview
-
-**Portfolio Tracker Pro** is a Python-powered app that enables users to:
-
-- 🔍 Analyze and compare over **500 stocks and ETFs**
-- 📈 Normalize price data to assess **relative asset performance**
-- 📉 Visualize risk metrics like **beta, volatility, and max drawdown**
-- 📊 Generate interactive **line, bar, and pie charts**
-- 📤 Export results to **PDF and CSV**
-- 📅 Forecast short-term trends using rolling averages
-
-Built with a modular architecture and deployed via Streamlit, this app is designed for scalability, responsiveness, and future enhancement.
+An interactive, Python-powered dashboard for exploring asset performance, visualizing risk, and forecasting future returns. Built for analysts, investors, and financial professionals who need fast, clean, and reliable portfolio insights.
 
 ---
 
-## 🛠️ Tech Stack
+## 🔎 Overview
 
-| Tool | Purpose |
-|------|---------|
-| `Python` | Core programming language |
-| `Streamlit` | Web app framework |
-| `Pandas` | Data manipulation and aggregation |
-| `Plotly` | Interactive chart rendering |
-| `yfinance` | Real-time financial data via Yahoo Finance |
-| `NumPy` | Numerical operations |
-| `Matplotlib` | Optional static charting support |
-| `Seaborn` | Data visualization (for future extensions) |
+**Portfolio Tracker Pro** helps users:
 
----
+- Compare over **500 stocks, ETFs, and indices**
+- Normalize price series to visualize **relative growth**
+- Analyze assets with interactive **line, bar, and pie charts**
+- Select a **custom benchmark** for alpha/beta analysis
+- Run time series forecasting using both **ARIMA** and **Facebook Prophet**
+- Generate PDF reports with charts, metrics, and summaries
+- Export raw or normalized data to **CSV**
 
-## 📂 Features
-
-✅ Compare normalized price trends for any selection of assets  
-✅ Choose from **500+ tickers** preloaded via CSV or search dropdown  
-✅ Intuitive sidebar navigation and input control  
-✅ Modular backend for custom charting and data loading  
-✅ Lightweight forecasting using simple moving averages  
-✅ Clean **dark-themed UI** optimized for readability  
-✅ Fully **exportable performance reports** (PDF / CSV)
+Designed for performance, readability, and real-world analytical workflows, the app is built using Streamlit and a modular Python backend.
 
 ---
 
-## 🧠 Use Case
+## 📈 Features
 
-This project was designed for:
-
-- **Finance professionals** tracking asset performance over time  
-- **CFA candidates and analysts** needing intuitive tools for relative asset analysis  
-- **Investors and educators** looking for clean visuals and exportable reports  
-- **Recruiters and hiring managers** seeking evidence of technical + financial fluency
-
----
-
-## 📸 Screenshots
-
-> _(Coming soon. You can also visit the [live demo](https://portfoliotrackerpro.streamlit.app/) to explore it firsthand.)_
+✅ 500+ asset universe via searchable dropdown  
+✅ Normalized vs. raw price comparisons  
+✅ Custom benchmark selection (e.g., SPY)  
+✅ Risk metrics:  
+  • **Sharpe Ratio**  
+  • **Alpha & Beta** (vs. benchmark)  
+  • **Volatility**, **Max Drawdown**  
+✅ Time series forecasting using:  
+  • **ARIMA** via `statsmodels`  
+  • **Prophet** via Meta’s forecasting package  
+✅ Correlation matrix for asset relationships  
+✅ PDF reporting with performance charts  
+✅ One-click export to CSV and PDF  
+✅ Built-in forecasting tips for user guidance
 
 ---
 
 ## 🧱 Architecture
+
+📁 portfolio_tracker_pro/ │ ├── Portfolio_Tracker_app.py # Streamlit frontend interface ├── portfolio.py # Charting, analytics, metrics ├── pdf_utils.py # PDF report generation ├── data/ │ └── tickers.csv # Ticker universe (~500+ assets) ├── assets/ # App styling, screenshots, branding ├── requirements.txt # Package dependencies └── README.md # This file
+
+
+
 
