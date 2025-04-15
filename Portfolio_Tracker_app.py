@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 from itertools import cycle
 
+
 # ========== DEPENDENCY HANDLING ==========
 def check_dependencies():
     """Check and initialize optional dependencies"""
