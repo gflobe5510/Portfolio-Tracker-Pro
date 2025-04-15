@@ -1,6 +1,6 @@
+#scipy==1.11.4  # Add this line for optimization
 numpy==1.26.4
 pandas==2.1.4
-scipy==1.11.4  # <-- Add this line for minimize() functionality
 streamlit==1.32.0
 yfinance==0.2.37
 plotly==5.18.0
