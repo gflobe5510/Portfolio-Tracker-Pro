@@ -377,6 +377,8 @@ def optimize_portfolio(data):
 
 # ========== MAIN APP ==========
 def main():
+    st.write("✅ App started...")
+    st.write("✅ Dependencies:", deps)
     # Header
     col1, col2 = st.columns([5, 1])
     with col1:
@@ -496,8 +498,20 @@ def main():
             weights[ticker] = (weights[ticker] / total_weight) * 100
 
     with st.status("🔄 Loading market data...", expanded=True) as status:
+            st.write("⏳ Fetching data for:", selected_tickers)
+            st.write("⏳ Benchmark:", BENCHMARK_OPTIONS[selected_bench])
         try:
-            data, bench_data = load_data(
+            try:
+                data, bench_data = load_data(
+                    selected_tickers,
+                    start_date,
+                    end_date,
+                    BENCHMARK_OPTIONS[selected_bench]
+                )
+                st.write("✅ Data successfully fetched.")
+            except Exception as e:
+                st.error(f"Data loading failed: {e}")
+                st.stop()
                 selected_tickers,
                 start_date,
                 end_date,
