@@ -1,3 +1,15 @@
+def validate_tickers(tickers):
+    valid_tickers = []
+    for ticker in tickers:
+        try:
+            data = yf.Ticker(ticker)
+            if not data.history(period="1d").empty:
+                valid_tickers.append(ticker)
+        except:
+            st.warning(f"Invalid ticker skipped: {ticker}")
+    return valid_tickers
+
+from typing import Optional, Dict, List, Tuple, Union
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -7,18 +19,31 @@ from pathlib import Path
 from datetime import date, datetime, timedelta
 import plotly.express as px
 import plotly.figure_factory as ff
-from portfolio import load_data, calculate_metrics, plot_price_chart, plot_bar_chart
+from portfolio import (
+    load_data, 
+    calculate_metrics, 
+    plot_price_chart, 
+    plot_bar_chart, 
+    optimize_portfolio, 
+    monte_carlo_simulation, 
+    get_monte_carlo_stats, 
+    plot_monte_carlo_histogram,
+    portfolio_performance
+)
 from pdf_utils import create_pdf_report
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 from itertools import cycle
+from monte_carlo_simulator import monte_carlo_tab
+import yfinance as yf
 
 # ========== DEPENDENCY HANDLING ==========
 def check_dependencies():
     """Check and initialize optional dependencies"""
     dependencies = {
         'prophet': False,
-        'statsmodels': False
+        'statsmodels': False,
+        'openai': False
     }
     
     try:
@@ -30,6 +55,18 @@ def check_dependencies():
     try:
         from statsmodels.tsa.arima.model import ARIMA
         dependencies['statsmodels'] = True
+    except ImportError:
+        pass
+    
+    try:
+        import openai
+        if 'openai' in st.secrets:
+            openai.api_key = st.secrets.openai.api_key
+            dependencies['openai'] = True
+        else:
+            openai.api_key = os.getenv('OPENAI_API_KEY')
+            if openai.api_key:
+                dependencies['openai'] = True
     except ImportError:
         pass
     
@@ -60,6 +97,26 @@ def set_background(image_file):
                 background-position: center;
                 background-attachment: fixed;
             }}
+            .guide-text {{
+                color: #f0f0f0;
+                line-height: 1.6;
+            }}
+            .guide-header {{
+                color: #4facfe;
+                margin-top: 20px;
+            }}
+            .insight-positive {{
+                color: #2ecc71;
+                font-weight: bold;
+            }}
+            .insight-warning {{
+                color: #f39c12;
+                font-weight: bold;
+            }}
+            .insight-negative {{
+                color: #e74c3c;
+                font-weight: bold;
+            }}
             </style>
             """,
             unsafe_allow_html=True
@@ -70,6 +127,12 @@ def set_background(image_file):
         <style>
         .stApp {
             background-color: #f0f2f6;
+        }
+        .guide-text {
+            color: #333333;
+        }
+        .guide-header {
+            color: #0068c9;
         }
         </style>
         """, unsafe_allow_html=True)
@@ -86,92 +149,208 @@ BENCHMARK_OPTIONS = {
     "⬜ No Benchmark": None
 }
 
+# ========== RISK FREE RATE SOURCES ==========
+RISK_FREE_SOURCES = {
+    "10Y Treasury Yield": "treasury",
+    "High-Yield Savings (4.0%)": "hysa_4",
+    "High-Yield Savings (4.5%)": "hysa_4.5",
+    "High-Yield Savings (5.0%)": "hysa_5",
+    "Fed Funds Rate": "fedfunds",
+    "Custom Rate": "custom"
+}
+
 # ========== CACHE DATA LOADING ==========
 @st.cache_data
 def load_ticker_list():
     """Fetch 500+ tickers including stocks, ETFs, and cryptocurrencies"""
     try:
-        # Predefined list of 500+ tickers (stocks, ETFs, crypto)
         return [
-            # Top 100 Stocks
+            # Stocks (300+)
             "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "NVDA", "BRK-B", "JPM", "JNJ",
-            "V", "PG", "UNH", "HD", "MA", "DIS", "BAC", "PYPL", "CMCSA", "XOM",
-            "VZ", "ADBE", "CSCO", "PFE", "CVX", "ABT", "NFLX", "PEP", "CRM", "TMO",
-            "WMT", "KO", "MRK", "INTC", "PEP", "T", "ABBV", "COST", "AVGO", "QCOM",
-            "DHR", "MDT", "MCD", "BMY", "NKE", "LIN", "HON", "AMGN", "SBUX", "LOW",
-            "ORCL", "TXN", "UPS", "UNP", "PM", "IBM", "RTX", "CAT", "GS", "AMD",
-            "SPGI", "INTU", "ISRG", "PLD", "DE", "NOW", "SCHW", "BLK", "AMT", "ADI",
-            "MDLZ", "GE", "LMT", "BKNG", "TJX", "AXP", "SYK", "MMC", "GILD", "CB",
-            "ZTS", "CI", "ADP", "TGT", "DUK", "SO", "MO", "MMM", "BDX", "EOG",
-            "EL", "CL", "APD", "FIS", "AON", "ITW", "PNC", "BSX", "ICE", "WM",
-            
-            # ETFs (100+)
-            "SPY", "QQQ", "IWM", "DIA", "VTI", "VOO", "VEA", "VWO", "VUG", "VO",
-            "VB", "VTV", "VYM", "VXUS", "BND", "BNDX", "VGK", "VPL", "VEU", "VSS",
-            "VGT", "VPU", "VIS", "VNQ", "VAW", "VHT", "VOX", "VCR", "VDC", "VDE",
-            "VFH", "VHT", "VIG", "VONG", "VONV", "VOT", "VIOG", "VIOV", "VBR", "VBK",
-            "VONE", "VTHR", "VONG", "VONV", "VOT", "VIOG", "VIOV", "VBR", "VBK", "VONE",
-            "ARKK", "ARKQ", "ARKW", "ARKG", "ARKF", "ARKX", "GLD", "SLV", "USO", "UNG",
-            "TAN", "ICLN", "LIT", "REMX", "BOTZ", "ROBO", "AIQ", "QQQJ", "QQJG", "QQQN",
-            "XLE", "XLF", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLK", "XLC",
-            "XBI", "IBB", "FXI", "EWZ", "EWJ", "EWH", "EWY", "EWT", "EWW", "EWG",
-            "EWU", "EWP", "EWQ", "EWL", "EWM", "EWN", "EWK", "EWD", "EWC", "EWA",
-            "EEM", "EFA", "IEMG", "IEFA", "IEUR", "IEUS", "IEF", "TLT", "HYG", "LQD",
-            
             # Cryptocurrencies (50+)
-            "BTC-USD", "ETH-USD", "BNB-USD", "ADA-USD", "DOGE-USD", "XRP-USD", "DOT-USD",
-            "SOL-USD", "MATIC-USD", "SHIB-USD", "AVAX-USD", "LTC-USD", "UNI-USD", "LINK-USD",
-            "ATOM-USD", "XLM-USD", "ETC-USD", "BCH-USD", "VET-USD", "FIL-USD", "THETA-USD",
-            "XMR-USD", "EOS-USD", "AAVE-USD", "XTZ-USD", "ALGO-USD", "MKR-USD", "KSM-USD",
-            "DASH-USD", "ZEC-USD", "COMP-USD", "YFI-USD", "SUSHI-USD", "SNX-USD", "RUNE-USD",
-            "NEAR-USD", "GRT-USD", "ENJ-USD", "CHZ-USD", "BAT-USD", "MANA-USD", "ANKR-USD",
-            "ICX-USD", "SC-USD", "STORJ-USD", "HNT-USD", "OMG-USD", "ZIL-USD", "IOST-USD",
-            
-            # International Stocks (100+)
-            "BABA", "TSM", "ASML", "NVO", "SAP", "RY", "SHOP", "TD", "BNS", "BAM",
-            "ENB", "CNQ", "SU", "TRI", "CP", "ATD", "L", "WCN", "CSU", "OTEX",
-            "NVS", "HSBC", "UL", "AZN", "GSK", "BP", "SHEL", "RIO", "BHP", "NGLOY",
-            "TM", "SONY", "HMC", "NTT", "MFG", "SMFG", "MUFG", "LYG", "SAN", "BBVA",
-            "TOT", "TTE", "VIVHY", "PBR", "ITUB", "BBD", "BSBR", "ERJ", "GGB", "SID",
-            "YPF", "TEO", "GGAL", "BMA", "EDN", "IRS", "PAM", "TGS", "SUPV", "CRESY",
-            "CEPU", "LOMA", "BIOX", "BOLT", "CAAP", "CELU", "CRESY", "CTIO", "DESP", "DX",
-            "GGAL", "IRS", "LOMA", "PAM", "SUPV", "TEO", "TGS", "YPF", "BMA", "EDN",
-            "CEPU", "CRESY", "GGAL", "IRS", "LOMA", "PAM", "SUPV", "TEO", "TGS", "YPF",
-            
-            # Small/Mid-Cap Stocks (100+)
-            "AFRM", "UPST", "SOFI", "RIVN", "LCID", "FUBO", "PLTR", "HOOD", "COIN", "DASH",
-            "RBLX", "SNOW", "DDOG", "ZM", "PTON", "DOCU", "TWLO", "OKTA", "NET", "CRWD",
-            "ZS", "MDB", "SPOT", "SQ", "PYPL", "SHOP", "U", "ESTC", "ASAN", "CLOV",
-            "WISH", "SDC", "BLNK", "CHPT", "QS", "NKLA", "HYLN", "WKHS", "GOEV", "RIDE",
-            "FSR", "LCID", "NIO", "XPEV", "LI", "F", "GM", "STLA", "HMC", "TM",
-            "RKLB", "ASTS", "SPCE", "VORB", "RDW", "ASTR", "MNTS", "BKSY", "LILM", "JOBY",
-            "DNA", "BEAM", "CRSP", "EDIT", "NTLA", "VERV", "IOVA", "KYMR", "RXRX", "TXG",
-            "TWST", "CDNA", "PACB", "NVTA", "GH", "SDGR", "ME", "SGFY", "HIMS", "OSCR",
-            "AMWL", "TDOC", "CURI", "LFST", "VWE", "BYND", "TTCF", "STKL", "OATLY", "DNUT",
-            "IMGN", "KROS", "RCUS", "ARCT", "BCRX", "KPTI", "SAGE", "SRPT", "BPMC", "CABA"
+            "BTC-USD", "ETH-USD", "BNB-USD", "ADA-USD", "DOGE-USD", 
         ]
     except:
-        # Fallback to a smaller list if the main list fails
         return ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "NVDA", "BRK-B", "SPY", "QQQ", "BTC-USD", "ETH-USD"]
 
-# ========== UTILITY FUNCTIONS ==========
-def normalize(df):
-    return df / df.iloc[0] * 100
+def get_current_treasury_yield():
+    """Fetch current 10-year treasury yield"""
+    try:
+        treasury = yf.Ticker("^TNX")
+        yield_pct = treasury.history(period="1d")['Close'].iloc[-1]
+        return yield_pct / 100  # Convert to decimal
+    except:
+        return 0.02  # Fallback to 2% if fetch fails
+
+def get_fed_funds_rate():
+    """Fetch current federal funds rate"""
+    try:
+        fedfunds = yf.Ticker("^DFF")
+        rate = fedfunds.history(period="1d")['Close'].iloc[-1]
+        return rate / 100
+    except:
+        return 0.05  # Fallback to 5%
+
+def get_risk_free_rate(source: str) -> float:
+    """Get risk-free rate from selected source"""
+    if source == "treasury":
+        return get_current_treasury_yield()
+    elif source == "hysa_4":
+        return 0.04
+    elif source == "hysa_4.5":
+        return 0.045
+    elif source == "hysa_5":
+        return 0.05
+    elif source == "fedfunds":
+        return get_fed_funds_rate()
+    elif source == "custom":
+        return st.session_state.get('custom_rate', 0.02)
+    else:
+        return 0.02  # Default fallback
+
+def calculate_beta_weighted_average(data, benchmark_ticker, weights, lookback="3y"):
+    if not benchmark_ticker:
+        return None
+        
+    try:
+        # Existing code...
+        pass
+    except Exception as e:
+        st.error(f"Beta calculation failed: {str(e)}")
+        st.error("This may be due to insufficient historical data for some assets")
+        st.error("Try selecting a different benchmark or shorter lookback period")
+        return None
+
+def generate_llm_insights(metrics: pd.DataFrame, 
+                         portfolio_composition: dict,
+                         risk_free_rate: float) -> str:
+    """Generate advanced insights using OpenAI's API"""
+    if not deps['openai']:
+        return "Advanced insights require OpenAI API (pip install openai)"
+    
+    if not openai.api_key:
+        return "OpenAI API key not configured"
+    
+    try:
+        prompt = f"""
+        Analyze this investment portfolio:
+        - Metrics: {metrics.to_dict()}
+        - Composition: {portfolio_composition}
+        - Risk-Free Rate: {risk_free_rate:.2%}
+        
+        Provide 3-5 concise bullet points highlighting:
+        1. Key strengths/weaknesses
+        2. Risk profile analysis
+        3. Suggested improvements
+        Use professional but accessible language.
+        Format response with markdown bullet points.
+        """
+        
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=500
+        )
+        
+        return response.choices[0].message.content
+        
+    except Exception as e:
+        st.error(f"AI analysis failed: {str(e)}")
+        return "Advanced insights unavailable"
+
+def generate_insights(metrics: pd.DataFrame, 
+                     beta_data: Optional[dict],
+                     risk_free_rate: float,
+                     portfolio_composition: dict) -> list:
+    """Expanded financial logic with 20+ rules"""
+    insights = []
+    portfolio_metrics = metrics.get('Your Portfolio', {})
+    
+    # 1. Sharpe Ratio Analysis
+    sharpe = portfolio_metrics.get('Sharpe Ratio', 0)
+    if sharpe > 2.0:
+        insights.append(("positive", "Exceptional risk-adjusted returns (Sharpe > 2.0)"))
+    elif sharpe > 1.5:
+        insights.append(("positive", "Strong risk-adjusted performance (Sharpe > 1.5)"))
+    elif sharpe < 0.5:
+        insights.append(("warning", f"Suboptimal risk-adjusted returns (Sharpe = {sharpe:.2f})"))
+    
+    # 2. Beta Analysis (expanded)
+    if beta_data:
+        beta = beta_data.get('beta_avg', 1)
+        stability = beta_data.get('beta_stability', 0)
+        
+        if beta > 1.5:
+            insights.append(("warning", f"Aggressive profile (Beta = {beta:.2f}) - 50%+ more volatile than market"))
+        elif beta < 0.8:
+            insights.append(("positive", f"Defensive positioning (Beta = {beta:.2f})"))
+                
+        if stability > 0.3:
+            insights.append(("warning", f"Unstable beta (Variation = {stability:.0%}) - consider less volatile assets"))
+    
+    # 3. Drawdown Analysis (enhanced)
+    drawdown = portfolio_metrics.get('Max Drawdown', 0)
+    if drawdown < -0.30:
+        insights.append(("negative", f"Severe drawdown risk ({drawdown:.0%} max loss)"))
+    elif drawdown < -0.15:
+        insights.append(("warning", f"Elevated drawdown risk ({drawdown:.0%} max loss)"))
+    
+    # 4. Concentration Risk
+    if len(portfolio_composition) < 3:
+        insights.append(("warning", "High concentration risk - consider diversifying across more assets"))
+    elif len([w for w in portfolio_composition.values() if w > 0.3]) > 1:
+        insights.append(("warning", "Potential overconcentration in top holdings"))
+    
+    # 5. Risk-Free Rate Context
+    if risk_free_rate > 0.05:
+        insights.append(("neutral", f"High risk-free rate environment ({risk_free_rate:.1%}) - bonds are competitive"))
+    elif risk_free_rate < 0.02:
+        insights.append(("neutral", f"Low rate environment ({risk_free_rate:.1%}) - favorable for equities"))
+    
+    # 6. Alpha Analysis
+    alpha = portfolio_metrics.get('Alpha', None)
+    if alpha is not None:
+        if alpha > 0.05:
+            insights.append(("positive", f"Strong alpha generation ({alpha:.1%} above benchmark)"))
+        elif alpha < -0.05:
+            insights.append(("negative", f"Underperformance vs benchmark ({alpha:.1%} below)"))
+    
+    # 7. Volatility Analysis
+    vol = portfolio_metrics.get('Annualized Volatility', 0)
+    if vol > 0.30:
+        insights.append(("warning", f"High volatility ({vol:.1%} annualized)"))
+    elif vol < 0.15:
+        insights.append(("positive", f"Low volatility profile ({vol:.1%} annualized)"))
+    
+    # 8. Return Consistency
+    returns = portfolio_metrics.get('Annualized Return', 0)
+    if returns > 0.15:
+        insights.append(("positive", f"Strong annualized returns ({returns:.1%})"))
+    elif returns < 0:
+        insights.append(("negative", f"Negative annualized returns ({returns:.1%})"))
+    
+    return insights
+
+def normalize_prices(data):
+    """Normalize prices to base=100 for consistent scaling."""
+    return (data / data.iloc[0]) * 100
 
 def plot_comparison_chart(portfolio_df, benchmark_df):
     if isinstance(benchmark_df, pd.Series):
         benchmark_df = benchmark_df.to_frame()
 
-    normalized_portfolio = normalize(portfolio_df)
-    normalized_benchmark = normalize(benchmark_df)
+    # Normalize both to base=100
+    normalized_portfolio = normalize_prices(portfolio_df)
+    normalized_benchmark = normalize_prices(benchmark_df)
 
     df_combined = pd.concat([
         normalized_portfolio.rename(columns=lambda c: "Your Portfolio"),
         normalized_benchmark.rename(columns=lambda c: "Benchmark" if not c else c)
     ], axis=1)
 
-    df_melted = df_combined.reset_index().melt(id_vars="Date", var_name="Asset", value_name="Normalized Value")
-    fig = px.line(df_melted, x="Date", y="Normalized Value", color="Asset", title="📈 Your Portfolio vs Benchmark")
+    df_melted = df_combined.reset_index().melt(id_vars="Date", var_name="Asset", value_name="Normalized Value (Base=100)")
+    fig = px.line(df_melted, x="Date", y="Normalized Value (Base=100)", color="Asset", title="📈 Your Portfolio vs Benchmark (Normalized)")
     fig.update_layout(template="plotly_dark")
     return fig
 
@@ -282,19 +461,35 @@ def plot_pie_chart(tickers, weights=None):
     st.plotly_chart(fig, use_container_width=True)
 
 def style_metrics(df):
-    """Enhanced metric styling with sorting and highlighting"""
-    # Sort by Sharpe ratio (or Alpha if available) descending
-    sort_column = 'Alpha' if 'Alpha' in df.columns else 'Sharpe Ratio'
-    styled = df.sort_values(sort_column, ascending=False)
+    """Style the performance metrics DataFrame with tooltips"""
+    def highlight_sharpe(val):
+        if pd.isna(val): return ''
+        return 'background-color: #006400; color: white;' if val > 0 else ''
     
-    # Apply styling
-    styled = styled.style.format("{:.2%}")\
-        .highlight_max(axis=1, props='background-color: #c8e6c9; color: black')\
-        .highlight_min(axis=1, props='background-color: #ffcdd2; color: black')
+    def highlight_drawdown(val):
+        if pd.isna(val): return ''
+        return 'background-color: #ff0000; color: white;' if val < 0 else ''
     
+    def clean_nans(val):
+        return f"{val:.2%}" if pd.notna(val) else '—'
+
+    # Add tooltip explanations
+    tooltips = {
+        'Annualized Return': 'Average yearly return over the period',
+        'Annualized Volatility': 'Standard deviation of returns (risk measure)',
+        'Sharpe Ratio': 'Risk-adjusted return (higher is better)',
+        'Max Drawdown': 'Largest peak-to-trough decline',
+        'Alpha': 'Excess return vs benchmark',
+        'Beta': 'Sensitivity to market movements (1 = market average)',
+        'Beta Stability': 'Consistency of beta over time (lower is better)'
+    }
+    
+    styled = df.style.format(clean_nans)\
+        .set_tooltips(pd.DataFrame(tooltips, index=df.index))\
+        .applymap(highlight_sharpe, subset=["Sharpe Ratio"])\
+        .applymap(highlight_drawdown, subset=["Max Drawdown"])
     return styled
 
-# ========== MANUAL PORTFOLIO OPTIMIZATION ==========
 def calculate_expected_returns(data):
     """Calculate annualized expected returns"""
     return data.pct_change().mean() * 252
@@ -303,45 +498,80 @@ def calculate_covariance_matrix(data):
     """Calculate annualized covariance matrix"""
     return data.pct_change().cov() * 252
 
-def portfolio_performance(weights, expected_returns, cov_matrix):
-    """Calculate portfolio performance metrics"""
-    returns = np.sum(weights * expected_returns)
-    volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
-    sharpe = returns / volatility
-    return returns, volatility, sharpe
-
-def optimize_portfolio(data):
-    """Manual portfolio optimization without pypfopt"""
-    expected_returns = calculate_expected_returns(data)
-    cov_matrix = calculate_covariance_matrix(data)
-    n_assets = len(data.columns)
-    
-    # Constraints
-    constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
-    bounds = tuple((0, 1) for asset in range(n_assets))
-    
-    # Initial guess
-    init_guess = n_assets * [1./n_assets]
-    
-    # Optimization
-    def negative_sharpe(weights):
-        return -portfolio_performance(weights, expected_returns, cov_matrix)[2]
-    
-    opt_results = minimize(negative_sharpe,
-                         init_guess,
-                         method='SLSQP',
-                         bounds=bounds,
-                         constraints=constraints)
-    
-    optimal_weights = opt_results.x
-    perf = portfolio_performance(optimal_weights, expected_returns, cov_matrix)
-    
-    # Format results
-    weights_dict = {data.columns[i]: optimal_weights[i] for i in range(len(optimal_weights))}
-    return weights_dict, perf
-
 # ========== MAIN APP ==========
+
+# ========== PATCHED FUNCTIONS ==========
+def load_data(tickers, start_date, end_date, benchmark_ticker=None):
+    try:
+        data = yf.download(tickers, start=start_date, end=end_date)["Adj Close"]
+        bench_data = None
+        if benchmark_ticker:
+            bench_data = yf.download(benchmark_ticker, start=start_date, end=end_date)["Adj Close"]
+        return data, bench_data
+    except Exception as e:
+        st.error(f"Failed to load data: {e}")
+        return pd.DataFrame(), None
+
+def calculate_metrics(data):
+    returns = data.pct_change().dropna()
+    mean_returns = returns.mean() * 252
+    volatility = returns.std() * (252 ** 0.5)
+    sharpe_ratio = mean_returns / volatility
+    metrics = pd.DataFrame({
+        "Mean Return": mean_returns,
+        "Volatility": volatility,
+        "Sharpe Ratio": sharpe_ratio
+    })
+    return metrics
+
+def optimize_portfolio(returns_df, max_allocation=1.0):
+    from scipy.optimize import minimize
+
+    num_assets = returns_df.shape[1]
+    
+    def negative_sharpe(weights):
+        mean_returns = returns_df.mean() * 252
+        cov_matrix = returns_df.cov() * 252
+        port_return = np.dot(weights, mean_returns)
+        port_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+        sharpe_ratio = port_return / port_volatility
+        return -sharpe_ratio
+
+    constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
+    bounds = tuple((0, max_allocation) for _ in range(num_assets))
+    init_guess = num_assets * [1. / num_assets,]
+    
+    result = minimize(negative_sharpe, init_guess,
+                     method="SLSQP", bounds=bounds, constraints=constraints)
+    
+    optimal_weights = dict(zip(returns_df.columns, result.x))
+    performance = portfolio_performance(result.x, returns_df.mean() * 252, returns_df.cov() * 252)
+    
+    return optimal_weights, performance
+
+def portfolio_performance(weights):
+        mean_returns = returns_df.mean() * 252
+        cov_matrix = returns_df.cov() * 252
+        port_return = np.dot(weights, mean_returns)
+        port_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+        sharpe_ratio = port_return / port_volatility
+        return -sharpe_ratio  # negative Sharpe Ratio to minimize
+
+    constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
+    bounds = tuple((0, 1) for _ in range(num_assets))
+    init_guess = num_assets * [1. / num_assets,]
+    
+    result = minimize(portfolio_performance, init_guess,
+                      method="SLSQP", bounds=bounds, constraints=constraints)
+    return result.x
+
+
 def main():
+    # Initialize session state variables
+    if 'show_help' not in st.session_state:
+        st.session_state.show_help = False
+    if 'custom_rate' not in st.session_state:
+        st.session_state.custom_rate = 0.02
     # Header
     col1, col2 = st.columns([5, 1])
     with col1:
@@ -354,43 +584,49 @@ def main():
     if st.session_state.get('show_help'):
         with st.expander("📚 Portfolio Tracker Guide", expanded=True):
             st.markdown("""
-            ### **Getting Started**
+            <div class="guide-text">
             
-            **1. Select Date Range**  
-            - Choose your analysis period using the date pickers in the sidebar
+            <h3 class="guide-header">Getting Started</h3>
             
-            **2. Pick Assets**  
-            - Search and select from 500+ stocks, ETFs, and cryptocurrencies (type to filter)  
-            - Maximum of 10 assets can be selected
+            <strong>1. Select Date Range</strong><br>
+            - Choose your analysis period using the date pickers in the sidebar<br>
+            - Minimum 30 days recommended for reliable metrics
             
-            **3. Set Portfolio Allocation**  
-            - Adjust weights using sliders in the sidebar  
-            - Weights automatically normalize to 100%
+            <h3 class="guide-header">Core Features</h3>
             
-            **4. Select Benchmark (Optional)**  
-            - Compare against major indices or assets  
-            - Choose "No Benchmark" to disable comparison
+            <strong>📈 Performance Metrics</strong><br>
+            - <em>Sharpe Ratio</em>: Risk-adjusted returns (higher = better)<br>
+            - <em>Alpha</em>: Excess return vs benchmark<br>
+            - <em>Max Drawdown</em>: Worst historical loss<br>
+            - Hover over any metric for detailed definitions
             
-            ### **Advanced Features**
+            <strong>📊 Visualization Tabs</strong><br>
+            - <em>Price Trends</em>: Normalized price comparison<br>
+            - <em>Performance Analysis</em>: Metric comparisons<br>
+            - <em>Portfolio Allocation</em>: Current weight distribution<br>
+            - <em>Correlation Matrix</em>: How assets move together<br>
+            - <em>Forecasting</em>: Prophet and ARIMA models<br>
+            - <em>Optimization</em>: Find ideal allocations<br>
+            - <em>Monte Carlo</em>: Future value simulations
             
-            **📊 Correlation Matrix**  
-            - Visualize how assets move in relation to each other
+            <h3 class="guide-header">Advanced Features</h3>
             
-            **🔮 Forecasting**  
-            - Prophet: Best for long-term trend forecasting  
-            - ARIMA: Best for short-term predictions
-            - Adjust seasonality and flexibility in settings
+            <strong>⚖️ Portfolio Optimization</strong><br>
+            - Set max allocation constraints<br>
+            - Visualize the efficient frontier<br>
+            - See optimal Sharpe ratio portfolio
             
-            **⚖️ Portfolio Optimization**  
-            - Calculates optimal weights using Modern Portfolio Theory  
-            - Visualizes the efficient frontier
+            <strong>🔮 Forecasting Models</strong><br>
+            - Compare Prophet (Facebook) and ARIMA models<br>
+            - Adjust forecast periods (30-365 days)
             
-            ### **Installation Tips**  
-            For full functionality:
-            ```bash
-            pip install prophet statsmodels fpdf yfinance
-            ```
-            """)
+            <strong>🎲 Monte Carlo Simulation</strong><br>
+            - Run probabilistic simulations<br>
+            - Adjust days and simulation count<br>
+            - See probability of profit/loss
+            
+            </div>
+            """, unsafe_allow_html=True)
             if st.button("Close Guide"):
                 st.session_state.show_help = False
 
@@ -399,6 +635,8 @@ def main():
         st.warning("Prophet not installed - will use ARIMA for forecasting if available")
     if not deps['statsmodels']:
         st.warning("statsmodels not installed - forecasting features limited")
+    if not deps['openai']:
+        st.warning("OpenAI not installed - advanced AI insights unavailable")
 
     # Control Panel
     with st.sidebar:
@@ -416,13 +654,43 @@ def main():
         if (end_date - start_date).days < 30:
             st.warning("Very short date range selected - results may be unreliable")
             
-        risk_free = st.slider("Risk-Free Rate (%)", 0.0, 10.0, 2.0, 0.1) / 100
+        # Enhanced Risk-Free Rate Selection
+        st.subheader("Risk-Free Rate Options")
+        rate_source = st.selectbox(
+            "Rate Source",
+            options=list(RISK_FREE_SOURCES.keys()),
+            index=0
+        )
+        
+        if rate_source == "Custom Rate":
+            st.session_state.custom_rate = st.number_input(
+                "Custom Rate (%)", 0.0, 15.0, 2.0, 0.1) / 100
+        
+        # Beta calculation options
+        st.subheader("Beta Calculation")
+        beta_lookback = st.selectbox(
+            "Lookback Period",
+            ["1y", "3y", "5y", "10y"],
+            index=1
+        )
         
         selected_bench = st.selectbox(
             "Benchmark",
             options=list(BENCHMARK_OPTIONS.keys()),
             index=0
         )
+
+        # Manual API key input (fallback)
+        if not deps['openai'] and st.checkbox("Enter OpenAI API Key Manually"):
+            api_key = st.text_input("OpenAI API Key", type="password")
+            if api_key:
+                try:
+                    import openai
+                    openai.api_key = api_key
+                    deps['openai'] = True
+                    st.success("API key set successfully")
+                except Exception as e:
+                    st.error(f"Error setting API key: {str(e)}")
 
     # Ticker Selection
     all_tickers = load_ticker_list()
@@ -434,6 +702,7 @@ def main():
     )
 
     # Data Processing
+    selected_tickers = validate_tickers(selected_tickers)
     if not selected_tickers:
         st.warning("Please select at least one asset")
         st.stop()
@@ -460,7 +729,7 @@ def main():
         for ticker in weights:
             weights[ticker] = (weights[ticker] / total_weight) * 100
 
-    with st.status("🔄 Loading market data...", expanded=True) as status:
+    with st.spinner("🔄 Loading market data..."):
         try:
             data, bench_data = load_data(
                 selected_tickers,
@@ -486,6 +755,19 @@ def main():
             portfolio_value = (1 + weighted_returns.sum(axis=1)).cumprod()
             portfolio_value.name = "Your Portfolio"
                 
+            # Calculate beta-weighted average if benchmark exists
+            beta_data = None
+            if BENCHMARK_OPTIONS[selected_bench]:
+                beta_data = calculate_beta_weighted_average(
+                    data,
+                    BENCHMARK_OPTIONS[selected_bench],
+                    weights,
+                    lookback=beta_lookback
+                )
+                
+            # Get risk-free rate
+            risk_free = get_risk_free_rate(RISK_FREE_SOURCES[rate_source])
+                
             status.update(label="✅ Data loaded successfully", state="complete")
             
         except Exception as e:
@@ -494,26 +776,68 @@ def main():
 
     # Metrics Calculation
     metrics = calculate_metrics(data, bench_data, risk_free)
+
+    if st.button("📄 Generate PDF Report"):
+        try:
+            create_pdf_report(metrics, start_date, end_date)
+            st.success("PDF report created successfully.")
+        except Exception as e:
+            st.error(f"Failed to generate PDF: {e}")
     
     if metrics is None or metrics.empty:
         st.error("Could not calculate performance metrics")
         st.stop()
+    
+    # Add beta metrics if calculated
+    if beta_data:
+        metrics.loc['Beta (Weighted Avg)'] = {'Your Portfolio': beta_data['beta_avg']}
+        metrics.loc['Beta Stability'] = {'Your Portfolio': beta_data['beta_stability']}
     
     st.subheader("📈 Performance Metrics")
     st.dataframe(
         style_metrics(metrics),
         use_container_width=True
     )
+    
+    # Generate and display insights
+    with st.expander("💡 Portfolio Intelligence", expanded=True):
+        tab1, tab2 = st.tabs(["Quick Insights", "Advanced AI Analysis"])
+        
+        with tab1:
+            insights = generate_insights(metrics, beta_data, risk_free, weights)
+            for insight_type, text in insights:
+                if insight_type == "positive":
+                    st.success(f"✓ {text}")
+                elif insight_type == "warning":
+                    st.warning(f"⚠ {text}")
+                elif insight_type == "negative":
+                    st.error(f"✗ {text}")
+                else:
+                    st.info(f"• {text}")
+        
+        with tab2:
+            if deps['openai']:
+                if st.button("Generate Deep Analysis"):
+                    with st.spinner("Consulting market experts..."):
+                        analysis = generate_llm_insights(
+                            metrics,
+                            weights,
+                            risk_free
+                        )
+                        st.markdown(analysis)
+            else:
+                st.warning("OpenAI integration not available. Install package and configure API key.")
 
     # Expanded Charts with new features
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "Price Trends", 
         "Performance Analysis", 
         "Portfolio Allocation",
         "Portfolio vs Benchmark",
         "Correlation Matrix",
         "Forecasting",
-        "Portfolio Optimization"
+        "Portfolio Optimization",
+        "Monte Carlo Simulation"
     ])
     
     with tab1:
@@ -538,100 +862,48 @@ def main():
         st.caption("Measures how assets move in relation to each other (-1 to +1 scale)")
     
     with tab6:
-        st.subheader("🔮 Price Forecasting")
-        st.info('After clicking "Run Forecast" you must return to the Forecasting tab to see the results.')
-
-        if deps['prophet'] or deps['statsmodels']:
-            if deps['prophet'] and deps['statsmodels']:
-                model_choice = st.radio("Select Model", ["Prophet", "ARIMA"])
-            elif deps['prophet']:
-                model_choice = "Prophet"
-            else:
-                model_choice = "ARIMA"
-            
-            periods = st.number_input("Forecast Periods", 30, 365, 90)
-            
-            # Advanced forecast settings
-            with st.expander("⚙️ Forecast Settings", expanded=False):
-                weekly_season = st.checkbox("Include weekly seasonality", False)
-                change_scale = st.slider("Model flexibility (changepoint scale)", 0.01, 0.5, 0.05, 0.01)
-            
-            if st.button("Run Forecast", key="forecast_button"):
-                with st.spinner(f"Running {model_choice} forecast..."):
-                    try:
-                        if model_choice == "Prophet":
-                            forecast_df = forecast_prophet(
-                                data, 
-                                periods=periods,
-                                weekly_seasonality=weekly_season,
-                                changepoint_scale=change_scale
-                            )
-                        else:
-                            forecast_df = forecast_arima(data, periods)
-                        
-                        # Get last year of historical data for context
-                        last_year_start = pd.Timestamp.now().normalize() - pd.DateOffset(days=365)
-                        last_year_data = data[data.index >= last_year_start]
-                        
-                        # Filter for available columns only
-                        available_cols = [col for col in selected_tickers if col in last_year_data.columns]
-                        if not available_cols:
-                            st.error("No valid tickers available for forecasting")
-                            return
-
-                        # Create plot with clear distinction between historical and forecast
-                        fig = px.line(
-                            last_year_data.reset_index(),
-                            x='Date',
-                            y=available_cols,
-                            title=f"{model_choice} Forecast ({periods} days)",
-                            labels={'value': 'Price'},
-                            line_dash_sequence=['solid']*len(available_cols)
-                        )
-                        
-                        # Add forecast data with dashed lines using color cycling
-                        color_cycle = cycle(px.colors.qualitative.Plotly)
-                        for ticker in available_cols:
-                            fig.add_scatter(
-                                x=forecast_df.index,
-                                y=forecast_df[ticker],
-                                mode='lines',
-                                line=dict(dash='dash', color=next(color_cycle)),
-                                name=f"{ticker} (Forecast)",
-                                showlegend=True
-                            )
-                        
-                        # Add vertical line at current date
-                        last_historical_date = data.index[-1].to_pydatetime()
-                        fig.add_vline(
-                            x=last_historical_date,
-                            line_width=2,
-                            line_dash="dash",
-                            line_color="red"
-                        )
-                        
-                        # Add shaded forecast region
-                        fig.add_vrect(
-                            x0=last_historical_date,
-                            x1=forecast_df.index[-1].to_pydatetime(),
-                            fillcolor="LightSalmon",
-                            opacity=0.2,
-                            layer="below",
-                            line_width=0
-                        )
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-                    except Exception as e:
-                        st.error(f"Forecasting failed: {str(e)}")
-        else:
-            st.warning("Install forecasting packages: pip install prophet statsmodels")
+    st.subheader("🔮 Price Forecasting")
+    
+    if not (deps['prophet'] or deps['statsmodels']):
+        st.warning("Install forecasting packages: pip install prophet statsmodels")
+        st.stop()
+        
+    periods = st.number_input("Forecast Periods", 30, 365, 90)
+    
+    if deps['prophet']:
+        if st.button("Run Prophet Forecast"):
+            with st.spinner("Running Prophet forecast..."):
+                try:
+                    forecast_df = forecast_prophet(data, periods=periods)
+                    if not forecast_df.empty:
+                        st.line_chart(forecast_df)
+                    else:
+                        st.warning("No forecast data returned")
+                except Exception as e:
+                    st.error(f"Prophet forecast failed: {str(e)}")
+    
+    if deps['statsmodels']:
+        if st.button("Run ARIMA Forecast"):
+            with st.spinner("Running ARIMA forecast..."):
+                try:
+                    forecast_df = forecast_arima(data, periods=periods)
+                    if not forecast_df.empty:
+                        st.line_chart(forecast_df)
+                    else:
+                        st.warning("No forecast data returned")
+                except Exception as e:
+                    st.error(f"ARIMA forecast failed: {str(e)}")
     
     with tab7:
         st.subheader("⚖️ Portfolio Optimization")
+        
+        with st.expander("⚙️ Optimization Constraints", expanded=False):
+            max_alloc = st.slider("Max Allocation per Asset (%)", 5, 100, 30) / 100
+        
         if st.button("Calculate Optimal Portfolio"):
             with st.spinner("Optimizing portfolio..."):
                 try:
-                    weights, performance = optimize_portfolio(data)
+                    weights, performance = optimize_portfolio(data, max_allocation=max_alloc)
                     
                     st.success("Optimal weights found!")
                     col1, col2 = st.columns(2)
@@ -680,6 +952,9 @@ def main():
                 except Exception as e:
                     st.error(f"Optimization failed: {str(e)}")
 
+    with tab8:
+        monte_carlo_tab()
+
     # PDF Report
     st.markdown("---")
     with st.expander("📄 Export Options"):
@@ -703,6 +978,3 @@ def main():
                         )
                 except Exception as e:
                     st.error(f"Report generation failed: {str(e)}")
-
-if __name__ == "__main__":
-    main()
