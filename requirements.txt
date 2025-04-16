@@ -8,3 +8,6 @@ scipy>=1.9.0
 matplotlib>=3.6.0
 tenacity>=8.1.0
 python-dateutil>=2.8.2
+prophet
+statsmodels
+pystan==2.19.1.1 
