@@ -1,4 +1,9 @@
 import streamlit as st
+st.set_page_config(
+    page_title="Portfolio Tracker Pro+",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 import pandas as pd
 import numpy as np
 import base64
@@ -12,6 +17,9 @@ from pdf_utils import create_pdf_report
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 from itertools import cycle
+
+
+
 
 # ========== DEPENDENCY HANDLING ==========
 def check_dependencies():
@@ -38,7 +46,6 @@ def check_dependencies():
 deps = check_dependencies()
 
 # ========== CONFIGURATION ==========
-st.set_page_config(
     page_title="📊 Portfolio Tracker Pro+",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -224,7 +231,7 @@ def forecast_prophet(data, periods=365, weekly_seasonality=False, changepoint_sc
 def forecast_arima(data, periods=30):
     from statsmodels.tsa.arima.model import ARIMA
     forecasts = {}
-    current_date = pd.Timestamp.now().normalize()
+
 
     for ticker in data.columns:
         # Get data and ensure proper datetime index
@@ -627,4 +634,83 @@ def main():
         else:
             st.warning("Install forecasting packages: pip install prophet statsmodels")
     
-    with tab
+    with tab7:
+        st.subheader("⚖️ Portfolio Optimization")
+        if st.button("Calculate Optimal Portfolio"):
+            with st.spinner("Optimizing portfolio..."):
+                try:
+                    weights, performance = optimize_portfolio(data)
+                    
+                    st.success("Optimal weights found!")
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.write("### Optimal Weights")
+                        for k, v in weights.items():
+                            st.write(f"{k}: {v:.2%}")
+                    
+                    with col2:
+                        st.write("### Portfolio Performance")
+                        st.write(f"Expected Return: {performance[0]:.2%}")
+                        st.write(f"Volatility: {performance[1]:.2%}")
+                        st.write(f"Sharpe Ratio: {performance[2]:.2f}")
+                    
+                    # Plot efficient frontier
+                    expected_returns = calculate_expected_returns(data)
+                    cov_matrix = calculate_covariance_matrix(data)
+                    
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    
+                    # Generate random portfolios
+                    n_portfolios = 10000
+                    results = np.zeros((3, n_portfolios))
+                    
+                    for i in range(n_portfolios):
+                        weights = np.random.random(len(data.columns))
+                        weights /= np.sum(weights)
+                        ret, vol, sharpe = portfolio_performance(weights, expected_returns, cov_matrix)
+                        results[0,i] = vol
+                        results[1,i] = ret
+                        results[2,i] = sharpe
+                    
+                    # Plot random portfolios
+                    ax.scatter(results[0,:], results[1,:], c=results[2,:], cmap='viridis_r', alpha=0.3)
+                    
+                    # Plot optimal portfolio
+                    ax.scatter(performance[1], performance[0], marker="*", color="r", s=300, label="Optimal")
+                    
+                    ax.set_title("Efficient Frontier")
+                    ax.set_xlabel("Volatility")
+                    ax.set_ylabel("Return")
+                    ax.legend()
+                    st.pyplot(fig)
+                    
+                except Exception as e:
+                    st.error(f"Optimization failed: {str(e)}")
+
+    # PDF Report
+    st.markdown("---")
+    with st.expander("📄 Export Options"):
+        if metrics is None or metrics.empty:
+            st.error("Metrics unavailable. Cannot generate report.")
+        elif st.button("Generate PDF Report"):
+            with st.spinner("Compiling report..."):
+                try:
+                    pdf_path = create_pdf_report(
+                        metrics,
+                        start_date=str(start_date),
+                        end_date=str(end_date),
+                        title=f"Portfolio Analysis: {', '.join(selected_tickers)}"
+                    )
+                    with open(pdf_path, "rb") as f:
+                        st.download_button(
+                            "⬇️ Download Full Report",
+                            data=f,
+                            file_name="portfolio_analysis.pdf",
+                            mime="application/pdf"
+                        )
+                except Exception as e:
+                    st.error(f"Report generation failed: {str(e)}")
+
+if __name__ == "__main__":
+    main()
