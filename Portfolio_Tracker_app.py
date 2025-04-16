@@ -530,29 +530,29 @@ def main():
             for ticker in selected_tickers:
                 if ticker in data.columns:  # Check if ticker exists in data
                     weighted_returns[ticker] = data[ticker].pct_change() * (weights[ticker]/100)
-        try:
-            data, bench_data = load_data(
-                selected_tickers,
-                start_date,
-                end_date,
-                BENCHMARK_OPTIONS[selected_bench]
-            )
-            if data is None or data.empty:
-                st.error("Failed to load asset data")
+            try:
+                data, bench_data = load_data(
+                    selected_tickers,
+                    start_date,
+                    end_date,
+                    BENCHMARK_OPTIONS[selected_bench]
+                )
+                if data is None or data.empty:
+                    st.error("Failed to load asset data")
+                    st.stop()
+                weighted_returns = pd.DataFrame()
+                for ticker in selected_tickers:
+                    if ticker in data.columns:
+                        weighted_returns[ticker] = data[ticker].pct_change() * (weights[ticker]/100)
+                if weighted_returns.empty:
+                    st.error("No valid data available for selected tickers")
+                    st.stop()
+                portfolio_value = (1 + weighted_returns.sum(axis=1)).cumprod()
+                portfolio_value.name = "Your Portfolio"
+                status.update(label="✅ Data loaded successfully", state="complete")
+            except Exception as e:
+                st.error(f"Critical error: {str(e)}")
                 st.stop()
-            weighted_returns = pd.DataFrame()
-            for ticker in selected_tickers:
-                if ticker in data.columns:
-                    weighted_returns[ticker] = data[ticker].pct_change() * (weights[ticker]/100)
-            if weighted_returns.empty:
-                st.error("No valid data available for selected tickers")
-                st.stop()
-            portfolio_value = (1 + weighted_returns.sum(axis=1)).cumprod()
-            portfolio_value.name = "Your Portfolio"
-            status.update(label="✅ Data loaded successfully", state="complete")
-        except Exception as e:
-            st.error(f"Critical error: {str(e)}")
-            st.stop()
 
     if metrics is None or metrics.empty:
         st.error("Could not calculate performance metrics")
