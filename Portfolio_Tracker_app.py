@@ -225,7 +225,7 @@ def forecast_arima(data, periods=30):
     forecasts = {}
 
 st.set_page_config(
-current_date = pd.Timestamp.now().normalize()
+    current_date = pd.Timestamp.now().normalize()
 
     for ticker in data.columns:
         # Get data and ensure proper datetime index
