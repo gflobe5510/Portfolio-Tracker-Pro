@@ -9,5 +9,7 @@ tenacity==8.2.2
 yfinance==0.2.37
 python-dateutil==2.9.0.post0
 statsmodels==0.14.1
+prophet==1.1.5
+pywin32==306; sys_platform == 'win32'
 
 
