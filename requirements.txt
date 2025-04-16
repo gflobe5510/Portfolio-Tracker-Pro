@@ -6,3 +6,4 @@ plotly
 scipy
 prophet
 statsmodels
+yfinance==0.2.37
