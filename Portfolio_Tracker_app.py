@@ -1,10 +1,10 @@
-import streamlit as st
 st.set_page_config(
     page_title="📊 Portfolio Tracker Pro+",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+import streamlit as st
 import pandas as pd
 import numpy as np
 import base64
@@ -286,11 +286,25 @@ def optimize_portfolio(data):
     return weights_dict, perf
 
 # ========== MAIN APP ==========
-def main():
-    # Initialize session state
-    if 'show_help' not in st.session_state:
-        st.session_state.show_help = False
 
+def main():
+    st.set_page_config(page_title="📊 Portfolio Tracker Pro+", layout="wide", initial_sidebar_state="expanded")
+
+    st.warning("✅ main() started...")
+
+    tickers = st.session_state.get("selected_tickers", ["AAPL", "MSFT", "META"])
+    st.write("📈 Selected Tickers:", tickers)
+
+    try:
+        data, bench_data = load_data(tickers)
+        st.success("✅ Data loaded successfully!")
+    except Exception as e:
+        st.error(f"❌ Failed to load data: {e}")
+        return  # exit early
+
+    if data.empty:
+        st.error("⚠️ Data is empty. No charts will be displayed.")
+        return
     # Header
     col1, col2 = st.columns([5, 1])
     with col1:
