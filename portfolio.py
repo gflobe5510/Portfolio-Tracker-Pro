@@ -1,4 +1,3 @@
-
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -95,3 +94,27 @@ def plot_bar_chart(metrics):
     ax.set_title('Portfolio Metrics')
     ax.set_xlabel('Value')
     return fig
+
+def optimize_portfolio(price_data, risk_free_rate=0.01):
+    import numpy as np
+    from scipy.optimize import minimize
+
+    daily_returns = price_data.pct_change().dropna()
+    mean_returns = daily_returns.mean()
+    cov_matrix = daily_returns.cov()
+
+    num_assets = len(mean_returns)
+
+    def portfolio_performance(weights):
+        returns = np.sum(mean_returns * weights) * 252
+        volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights))) * np.sqrt(252)
+        sharpe_ratio = (returns - risk_free_rate) / volatility
+        return -sharpe_ratio
+
+    constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
+    bounds = tuple((0, 1) for _ in range(num_assets))
+    initial_weights = num_assets * [1. / num_assets,]
+
+    result = minimize(portfolio_performance, initial_weights, method='SLSQP',
+                      bounds=bounds, constraints=[constraints])
+    return result.x
