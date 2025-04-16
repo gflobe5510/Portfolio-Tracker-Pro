@@ -538,9 +538,9 @@ def main():
                 
             status.update(label="✅ Data loaded successfully", state="complete")
             
-        except Exception as e:
-            st.error(f"Critical error: {str(e)}")
-            st.stop()
+                except Exception as e:
+                    st.error(f"Critical error: {str(e)}")
+                    st.stop()
 
     # Metrics Calculation
     metrics = calculate_metrics(data, bench_data, risk_free)
