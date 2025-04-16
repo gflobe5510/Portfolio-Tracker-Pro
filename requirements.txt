@@ -1,4 +1,4 @@
-#scipy==1.11.4  # Add this line for optimization
+#scipy==1.11.4  
 numpy==1.26.4
 pandas==2.1.4
 streamlit==1.32.0
@@ -8,6 +8,5 @@ seaborn==0.12.2
 fpdf2==2.7.7
 python-dotenv==1.0.0
 watchdog==3.0.0
-# Updated on 2025-04-16 - added scipy
-scipy==1.11.4
-...
+
+
