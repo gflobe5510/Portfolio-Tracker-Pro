@@ -510,12 +510,13 @@ def main():
                 st.write("✅ Data successfully fetched.")
             except Exception as e:
                 st.error(f"Data loading failed: {e}")
+                data, bench_data = load_data(
+                    selected_tickers,
+                    start_date,
+                    end_date,
+                    BENCHMARK_OPTIONS[selected_bench]
+                )
                 st.stop()
-                selected_tickers,
-                start_date,
-                end_date,
-                BENCHMARK_OPTIONS[selected_bench]
-            )
             
             st.warning(f"DEBUG - Attempted to load tickers: {selected_tickers}")
             if data is None or data.empty:
