@@ -7,9 +7,6 @@ import streamlit as st
 from datetime import datetime
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-# Set page config must be the first Streamlit command
-st.set_page_config(page_title="Portfolio Tracker", layout="wide")
-
 @st.cache_data(ttl=3600)
 def load_data(tickers, start, end, benchmark=None):
     """Enhanced data loading function with better error handling and yfinance compatibility"""
@@ -20,40 +17,34 @@ def load_data(tickers, start, end, benchmark=None):
         @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
         def download_assets():
             """Retryable download function with improved yfinance parameters"""
-            try:
-                data = yf.download(
-                    ticker_list,
-                    start=start,
-                    end=end,
-                    group_by='ticker',
-                    progress=False,
-                    auto_adjust=True,
-                    threads=True,
-                    timeout=30
-                )
-                
-                # Handle single ticker case
-                if len(ticker_list) == 1:
-                    if not data.empty and 'Close' in data.columns:
-                        return data[['Close']].rename(columns={'Close': ticker_list[0]})
-                    else:
-                        st.warning(f"No 'Close' data available for {ticker_list[0]}")
-                        return pd.DataFrame()
-                
-                # Handle multiple tickers
-                close_data = pd.DataFrame()
-                for ticker in ticker_list:
-                    if ticker in data.columns.get_level_values(0):
-                        if 'Close' in data[ticker]:
-                            close_data[ticker] = data[ticker]['Close']
-                        else:
-                            st.warning(f"No 'Close' data available for {ticker}")
-                
-                return close_data
+            data = yf.download(
+                ticker_list,
+                start=start,
+                end=end,
+                group_by='ticker',
+                progress=False,
+                auto_adjust=True,
+                threads=True,
+                timeout=30  # Increased timeout
+            , threads=False, progress=False)
             
-            except Exception as e:
-                st.error(f"Failed to download data: {str(e)}")
-                return pd.DataFrame()
+            # Handle single ticker case
+            if len(ticker_list) == 1:
+                if 'Close' in data.columns:
+                    return data[['Close']].rename(columns={'Close': ticker_list[0]})
+                else:
+                    raise ValueError(f"No 'Close' data for {ticker_list[0]}")
+            
+            # Handle multiple tickers
+            close_data = pd.DataFrame()
+            for ticker in ticker_list:
+                if ticker in data.columns.get_level_values(0):
+                    if 'Close' in data[ticker]:
+                        close_data[ticker] = data[ticker]['Close']
+                    else:
+                        st.warning(f"No 'Close' data available for {ticker}")
+            
+            return close_data
 
         # Download main assets
         close_data = download_assets()
@@ -68,25 +59,21 @@ def load_data(tickers, start, end, benchmark=None):
             try:
                 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
                 def download_bench():
-                    try:
-                        bench_df = yf.download(
-                            benchmark,
-                            start=start,
-                            end=end,
-                            progress=False,
-                            auto_adjust=True,
-                            threads=True,
-                            timeout=30
-                        )
-                        if not bench_df.empty and 'Close' in bench_df.columns:
-                            return bench_df['Close'].copy()
-                        return pd.Series()
-                    except Exception as e:
-                        st.warning(f"Benchmark download error: {str(e)}")
-                        return pd.Series()
+                    bench_df = yf.download(
+                        benchmark,
+                        start=start,
+                        end=end,
+                        progress=False,
+                        auto_adjust=True,
+                        threads=True,
+                        timeout=30
+                    , threads=False, progress=False)
+                    if not bench_df.empty and 'Close' in bench_df.columns:
+                        return bench_df['Close'].copy()
+                    return None
                 
                 benchmark_data = download_bench()
-                if not benchmark_data.empty:
+                if benchmark_data is not None:
                     benchmark_data.name = f"Benchmark ({benchmark})"
                 else:
                     st.warning(f"Could not load benchmark data for {benchmark}")
@@ -100,7 +87,7 @@ def load_data(tickers, start, end, benchmark=None):
     
     except Exception as e:
         st.error(f"Data loading failed: {str(e)}")
-        return pd.DataFrame(), None
+        return None, None
 
 def normalize_prices(data):
     """Normalize prices to base=100 for consistent scaling."""
@@ -137,7 +124,7 @@ def calculate_metrics(data, benchmark=None, risk_free_rate=0.02):
         metrics["Max Drawdown"] = drawdown.min()
         
         # Benchmark comparison if available
-        if benchmark is not None and not benchmark.empty:
+        if benchmark is not None:
             benchmark_returns = benchmark.pct_change().dropna()
             if not benchmark_returns.empty:
                 benchmark_annual_return = (1 + benchmark_returns.mean()) ** 252 - 1
@@ -162,7 +149,7 @@ def plot_price_chart(data, benchmark=None):
         
     fig = px.line(normalized_data, title="📈 Normalized Price Trends (Base=100)")
     
-    if benchmark is not None and not benchmark.empty:
+    if benchmark is not None:
         try:
             if isinstance(benchmark, pd.DataFrame) and benchmark.shape[1] == 1:
                 benchmark_series = benchmark.iloc[:, 0]
@@ -186,8 +173,7 @@ def plot_price_chart(data, benchmark=None):
     fig.update_layout(
         yaxis_title="Normalized Price (Base=100)",
         xaxis_title="Date",
-        legend_title="Assets",
-        hovermode="x unified"
+        legend_title="Assets"
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -205,13 +191,7 @@ def plot_bar_chart(metrics):
             y="Value",
             color="index",
             barmode="group",
-            title="📊 Performance Metrics",
-            text_auto=".2%"
-        )
-        fig.update_layout(
-            yaxis_tickformat=".2%",
-            uniformtext_minsize=8,
-            uniformtext_mode="hide"
+            title="📊 Performance Metrics"
         )
         st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
@@ -223,15 +203,15 @@ def style_performance(df):
         return None
         
     def highlight_sharpe(val):
-        if pd.isna(val): return ""
-        return "background-color: #006400; color: white;" if val > 0 else ""
+        if pd.isna(val): return ''
+        return 'background-color: #006400; color: white;' if val > 0 else ''
     
     def highlight_drawdown(val):
-        if pd.isna(val): return ""
-        return "background-color: #ff0000; color: white;" if val < 0 else ""
+        if pd.isna(val): return ''
+        return 'background-color: #ff0000; color: white;' if val < 0 else ''
     
     def clean_nans(val):
-        return f"{val:.2%}" if pd.notna(val) else "—"
+        return f"{val:.2%}" if pd.notna(val) else '—'
 
     try:
         styled = df.style.format(clean_nans)\
@@ -241,40 +221,3 @@ def style_performance(df):
     except Exception as e:
         st.error(f"Could not style metrics: {str(e)}")
         return df.style.format(clean_nans)
-
-# Main app
-st.title("📊 Portfolio Performance Tracker")
-
-# Input parameters
-col1, col2 = st.columns(2)
-with col1:
-    tickers = st.text_input("Enter tickers (comma separated)", "AAPL,MSFT,GOOG")
-    start_date = st.date_input("Start date", datetime(2020, 1, 1))
-with col2:
-    benchmark_ticker = st.text_input("Benchmark ticker (optional)", "^GSPC")
-    end_date = st.date_input("End date", datetime.today())
-
-# Process data
-if st.button("Analyze Portfolio"):
-    with st.spinner("Loading data..."):
-        ticker_list = [t.strip() for t in tickers.split(",")]
-        data, benchmark = load_data(
-            ticker_list,
-            start_date,
-            end_date,
-            benchmark_ticker if benchmark_ticker else None
-        )
-        
-        if not data.empty:
-            st.success("Data loaded successfully!")
-            
-            # Display results
-            st.subheader("Performance Analysis")
-            plot_price_chart(data, benchmark)
-            
-            metrics = calculate_metrics(data, benchmark)
-            if metrics is not None:
-                st.dataframe(style_performance(metrics), use_container_width=True)
-                plot_bar_chart(metrics)
-        else:
-            st.error("Failed to load data for the selected tickers. Please check the ticker symbols and try again.")
