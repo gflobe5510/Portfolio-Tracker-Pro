@@ -473,10 +473,10 @@ def main():
     with st.status("🔄 Loading market data...", expanded=True) as status:
         try:
             
-        st.write("DEBUG - Tickers:", selected_tickers)
-        st.write("DEBUG - Start:", start_date, "End:", end_date)
-        st.write("DEBUG - Benchmark:", BENCHMARK_OPTIONS[selected_bench])
-        data, bench_data = load_data(
+                    st.write("DEBUG - Tickers:", selected_tickers)
+                    st.write("DEBUG - Start:", start_date, "End:", end_date)
+                    st.write("DEBUG - Benchmark:", BENCHMARK_OPTIONS[selected_bench])
+                    data, bench_data = load_data(
                 selected_tickers,
                 start_date,
                 end_date,
