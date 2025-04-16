@@ -8,3 +8,6 @@ seaborn==0.12.2
 fpdf2==2.7.7
 python-dotenv==1.0.0
 watchdog==3.0.0
+# Updated on 2025-04-16 - added scipy
+scipy==1.11.4
+...
