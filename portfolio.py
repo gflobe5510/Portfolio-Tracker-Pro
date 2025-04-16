@@ -1,11 +1,23 @@
+
+Copy
+# IMPORTANT: This must be the VERY FIRST Streamlit command
+import streamlit as st
+st.set_page_config(
+    page_title="📊 Portfolio Tracker Pro+",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Now import all other libraries
 import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import streamlit as st
 from datetime import datetime
 from tenacity import retry, stop_after_attempt, wait_exponential
+from scipy.optimize import minimize
+from itertools import cycle
 
 @st.cache_data(ttl=3600)
 def load_data(tickers, start, end, benchmark=None):
