@@ -1,97 +1,40 @@
 
-import yfinance as yf
 import pandas as pd
-import numpy as np
-import plotly.graph_objs as go
-import matplotlib.pyplot as plt
 
-def load_data(tickers, start, end, benchmark_symbol):
-    """
-    Load historical data for selected tickers and benchmark.
+PRICE_DATA_CSV = "replacement_data/price_data.csv"
 
-    Parameters:
-        tickers (list): List of stock tickers.
-        start (str): Start date in 'YYYY-MM-DD'.
-        end (str): End date in 'YYYY-MM-DD'.
-        benchmark_symbol (str): Benchmark ticker symbol (e.g., '^GSPC').
+def load_data(tickers, start_date, end_date, benchmark=None):
+    df = pd.read_csv(PRICE_DATA_CSV, parse_dates=["Date"])
+    df = df[df["Ticker"].isin(tickers)]
+    df = df[(df["Date"] >= pd.to_datetime(start_date)) & (df["Date"] <= pd.to_datetime(end_date))]
+    df_pivot = df.pivot(index="Date", columns="Ticker", values="Adj Close").dropna(how="all")
 
-    Returns:
-        tuple: (data_df, benchmark_df)
-    """
-    all_tickers = tickers + [benchmark_symbol]
-    df = yf.download(all_tickers, start=start, end=end, progress=False, group_by='ticker', auto_adjust=True)
+    bench_df = None
+    if benchmark and benchmark in df["Ticker"].unique():
+        bench_df = df[df["Ticker"] == benchmark].set_index("Date")["Adj Close"]
 
-    if df.empty:
-        return None, None
+    return df_pivot, bench_df
 
-    if isinstance(df.columns, pd.MultiIndex):
-        data = pd.concat([df[ticker]['Close'] for ticker in tickers], axis=1)
-        data.columns = tickers
+def calculate_metrics(prices, weights):
+    normed = prices / prices.iloc[0]
+    weighted = (normed * list(weights.values())).sum(axis=1)
+    returns = weighted.pct_change().dropna()
+    cumulative = (1 + returns).cumprod()
+    return cumulative, returns
 
-        benchmark = df[benchmark_symbol]['Close'].rename(benchmark_symbol)
-    else:
-        data = df['Close'].to_frame(name=tickers[0])
-        benchmark = df['Close'].to_frame(name=benchmark_symbol)
-
-    return data, benchmark
-
-def calculate_metrics(data, weights):
-    """
-    Calculate portfolio returns, volatility, and Sharpe ratio.
-
-    Parameters:
-        data (DataFrame): Asset price data.
-        weights (dict): Ticker weights.
-
-    Returns:
-        dict: Portfolio metrics.
-    """
-    df = data.copy()
-    returns = df.pct_change().dropna()
-    weighted_returns = returns.mul([weights[t] / 100 for t in df.columns], axis=1)
-    portfolio_returns = weighted_returns.sum(axis=1)
-
-    cumulative_return = (1 + portfolio_returns).prod() - 1
-    volatility = portfolio_returns.std() * np.sqrt(252)
-    sharpe_ratio = (portfolio_returns.mean() / portfolio_returns.std()) * np.sqrt(252)
-
-    return {
-        "Cumulative Return": cumulative_return,
-        "Volatility": volatility,
-        "Sharpe Ratio": sharpe_ratio
-    }
-
-def plot_price_chart(data, benchmark=None):
-    """
-    Plot the normalized price chart of assets and benchmark.
-
-    Parameters:
-        data (DataFrame): Price data for assets.
-        benchmark (Series): Benchmark price data.
-    """
+def plot_price_chart(prices, benchmark=None):
+    import plotly.graph_objects as go
     fig = go.Figure()
-    for ticker in data.columns:
-        fig.add_trace(go.Scatter(x=data.index, y=data[ticker] / data[ticker].iloc[0], mode='lines', name=ticker))
-
+    for col in prices.columns:
+        fig.add_scatter(x=prices.index, y=prices[col], name=col)
     if benchmark is not None:
-        fig.add_trace(go.Scatter(x=benchmark.index, y=benchmark / benchmark.iloc[0],
-                                 mode='lines', name=benchmark.name, line=dict(dash='dot')))
-
-    fig.update_layout(title="Normalized Price Performance", xaxis_title="Date", yaxis_title="Normalized Price")
+        fig.add_scatter(x=benchmark.index, y=benchmark, name=benchmark.name, line=dict(color="gray", dash="dot"))
+    fig.update_layout(title="Adjusted Close Price Over Time", xaxis_title="Date", yaxis_title="Price")
     return fig
 
-def plot_bar_chart(metrics):
-    """
-    Plot a bar chart for key portfolio metrics.
-
-    Parameters:
-        metrics (dict): Dictionary with metric names and values.
-    """
-    names = list(metrics.keys())
-    values = list(metrics.values())
-
-    fig, ax = plt.subplots()
-    ax.barh(names, values, color='skyblue')
-    ax.set_title('Portfolio Metrics')
-    ax.set_xlabel('Value')
+def plot_bar_chart(returns):
+    import plotly.express as px
+    bar_df = returns.tail(1).T
+    bar_df.columns = ["Return"]
+    fig = px.bar(bar_df, y="Return", title="Final Portfolio Value Contribution")
     return fig
