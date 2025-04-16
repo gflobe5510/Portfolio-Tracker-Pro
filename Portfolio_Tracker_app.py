@@ -1,11 +1,10 @@
-import streamlit as st
-
 st.set_page_config(
     page_title="📊 Portfolio Tracker Pro+",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+import streamlit as st
 import pandas as pd
 import numpy as np
 import base64
@@ -14,7 +13,7 @@ from pathlib import Path
 from datetime import date, datetime, timedelta
 import plotly.express as px
 import plotly.figure_factory as ff
-from portfolio_debugged import load_data
+from portfolio import load_data, calculate_metrics, plot_price_chart, plot_bar_chart
 from pdf_utils import create_pdf_report
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
