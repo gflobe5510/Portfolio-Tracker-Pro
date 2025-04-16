@@ -14,7 +14,7 @@ from pathlib import Path
 from datetime import date, datetime, timedelta
 import plotly.express as px
 import plotly.figure_factory as ff
-from portfolio import load_data, calculate_metrics, plot_price_chart, plot_bar_chart
+from portfolio_debugged import load_data
 from pdf_utils import create_pdf_report
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
