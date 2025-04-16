@@ -500,7 +500,6 @@ def main():
     with st.status("🔄 Loading market data...", expanded=True) as status:
             st.write("⏳ Fetching data for:", selected_tickers)
             st.write("⏳ Benchmark:", BENCHMARK_OPTIONS[selected_bench])
-        try:
             try:
                 data, bench_data = load_data(
                     selected_tickers,
