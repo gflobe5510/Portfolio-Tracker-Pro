@@ -8,30 +8,31 @@ from datetime import datetime
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 @st.cache_data(ttl=3600)
-def load_data(tickers, start, end, benchmark=None):
-    """Enhanced data loading function with better error handling and yfinance compatibility"""
-    try:
-        # Convert single ticker to list for consistent processing
-        ticker_list = [tickers] if isinstance(tickers, str) else list(tickers)
-        
-        @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-        def download_assets():
-            """Retryable download function with improved yfinance parameters"""
-            data = yf.download(
-                ticker_list,
-                start=start,
-                end=end,
-                group_by='ticker',
-                progress=False,
-                auto_adjust=True,
-                threads=True,
-                timeout=30  # Increased timeout
-            )
-            
-            # Handle single ticker case
-            if len(ticker_list) == 1:
-                if 'Close' in data.columns:
-                    return data[['Close']].rename(columns={'Close': ticker_list[0]})
+
+def load_data(tickers, start, end):
+    import yfinance as yf
+    import pandas as pd
+    from datetime import datetime
+
+    data = {}
+    for ticker in tickers:
+        try:
+            df = yf.download(ticker, start=start, end=end)
+            if df.empty:
+                raise ValueError("Empty DataFrame returned by yf.download")
+            data[ticker] = df["Adj Close"]
+        except Exception as e:
+            try:
+                fallback = yf.Ticker(ticker).history(start=start, end=end)
+                if fallback.empty:
+                    raise ValueError(f"No data found for {ticker} via fallback")
+                data[ticker] = fallback["Close"]
+            except Exception as fallback_error:
+                print(f"Failed to get ticker '{ticker}' using both methods. Reason: {fallback_error}")
+    if not data:
+        raise ValueError("No data returned for selected tickers.")
+    return pd.DataFrame(data)
+
                 else:
                     raise ValueError(f"No 'Close' data for {ticker_list[0]}")
             
