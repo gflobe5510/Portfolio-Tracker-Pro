@@ -1,14 +1,3 @@
-def validate_tickers(tickers):
-    valid_tickers = []
-    for ticker in tickers:
-        try:
-            data = yf.Ticker(ticker)
-            if not data.history(period="1d").empty:
-                valid_tickers.append(ticker)
-        except:
-            st.warning(f"Invalid ticker skipped: {ticker}")
-    return valid_tickers
-
 from typing import Optional, Dict, List, Tuple, Union
 import streamlit as st
 import pandas as pd
@@ -208,17 +197,71 @@ def get_risk_free_rate(source: str) -> float:
     else:
         return 0.02  # Default fallback
 
-def calculate_beta_weighted_average(data, benchmark_ticker, weights, lookback="3y"):
+def calculate_beta_weighted_average(data: pd.DataFrame, 
+                                  benchmark_ticker: str,
+                                  weights: dict,
+                                  lookback: str = "3y") -> Optional[dict]:
+    """
+    Enhanced beta calculation with:
+    - Multiple lookback periods
+    - Rolling beta analysis
+    - Error handling
+    """
     if not benchmark_ticker:
         return None
         
     try:
-        # Existing code...
-        pass
+        # Get historical data
+        asset_data = {}
+        for ticker in data.columns:
+            try:
+                asset_data[ticker] = yf.download(ticker, period=lookback)['Adj Close']
+            except:
+                st.warning(f"Could not fetch data for {ticker}")
+                continue
+                
+        bench_data = yf.download(benchmark_ticker, period=lookback)['Adj Close']
+        
+        if len(asset_data) == 0:
+            return None
+            
+        # Calculate rolling betas (90-day window)
+        betas = {}
+        rolling_betas = {}
+        for ticker, prices in asset_data.items():
+            merged = pd.concat([prices, bench_data], axis=1).dropna()
+            merged.columns = ['asset', 'benchmark']
+            
+            returns = merged.pct_change().dropna()
+            cov = returns.rolling(window=90).cov().unstack()['asset']['benchmark']
+            var = returns['benchmark'].rolling(window=90).var()
+            rolling_beta = cov / var
+            
+            # Use median of last 6 months rolling betas
+            betas[ticker] = rolling_beta.last('6M').median()
+            rolling_betas[ticker] = rolling_beta
+        
+        # Calculate weighted average beta
+        valid_betas = [betas[t] for t in betas if not np.isnan(betas[t])]
+        valid_weights = [weights[t] for t in betas if not np.isnan(betas[t])]
+        
+        if len(valid_betas) == 0:
+            return None
+            
+        beta_avg = np.average(valid_betas, weights=valid_weights)
+        
+        # Additional metrics
+        combined_rolling = pd.DataFrame(rolling_betas).mean(axis=1)
+        beta_stability = combined_rolling.std() / abs(beta_avg)
+        
+        return {
+            'beta_avg': beta_avg,
+            'beta_stability': beta_stability,
+            'rolling_beta': combined_rolling
+        }
+        
     except Exception as e:
-        st.error(f"Beta calculation failed: {str(e)}")
-        st.error("This may be due to insufficient historical data for some assets")
-        st.error("Try selecting a different benchmark or shorter lookback period")
+        st.error(f"Beta calculation error: {str(e)}")
         return None
 
 def generate_llm_insights(metrics: pd.DataFrame, 
@@ -501,16 +544,14 @@ def calculate_covariance_matrix(data):
 # ========== MAIN APP ==========
 
 # ========== PATCHED FUNCTIONS ==========
-def load_data(tickers, start_date, end_date, benchmark_ticker=None):
+def load_data(tickers, start_date, end_date):
+    import yfinance as yf
     try:
         data = yf.download(tickers, start=start_date, end=end_date)["Adj Close"]
-        bench_data = None
-        if benchmark_ticker:
-            bench_data = yf.download(benchmark_ticker, start=start_date, end=end_date)["Adj Close"]
-        return data, bench_data
+        return data
     except Exception as e:
         st.error(f"Failed to load data: {e}")
-        return pd.DataFrame(), None
+        return pd.DataFrame()
 
 def calculate_metrics(data):
     returns = data.pct_change().dropna()
@@ -524,32 +565,11 @@ def calculate_metrics(data):
     })
     return metrics
 
-def optimize_portfolio(returns_df, max_allocation=1.0):
+def optimize_portfolio(returns_df):
     from scipy.optimize import minimize
 
     num_assets = returns_df.shape[1]
-    
-    def negative_sharpe(weights):
-        mean_returns = returns_df.mean() * 252
-        cov_matrix = returns_df.cov() * 252
-        port_return = np.dot(weights, mean_returns)
-        port_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
-        sharpe_ratio = port_return / port_volatility
-        return -sharpe_ratio
-
-    constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
-    bounds = tuple((0, max_allocation) for _ in range(num_assets))
-    init_guess = num_assets * [1. / num_assets,]
-    
-    result = minimize(negative_sharpe, init_guess,
-                     method="SLSQP", bounds=bounds, constraints=constraints)
-    
-    optimal_weights = dict(zip(returns_df.columns, result.x))
-    performance = portfolio_performance(result.x, returns_df.mean() * 252, returns_df.cov() * 252)
-    
-    return optimal_weights, performance
-
-def portfolio_performance(weights):
+    def portfolio_performance(weights):
         mean_returns = returns_df.mean() * 252
         cov_matrix = returns_df.cov() * 252
         port_return = np.dot(weights, mean_returns)
@@ -567,11 +587,6 @@ def portfolio_performance(weights):
 
 
 def main():
-    # Initialize session state variables
-    if 'show_help' not in st.session_state:
-        st.session_state.show_help = False
-    if 'custom_rate' not in st.session_state:
-        st.session_state.custom_rate = 0.02
     # Header
     col1, col2 = st.columns([5, 1])
     with col1:
@@ -702,7 +717,6 @@ def main():
     )
 
     # Data Processing
-    selected_tickers = validate_tickers(selected_tickers)
     if not selected_tickers:
         st.warning("Please select at least one asset")
         st.stop()
@@ -862,37 +876,38 @@ def main():
         st.caption("Measures how assets move in relation to each other (-1 to +1 scale)")
     
     with tab6:
-    st.subheader("🔮 Price Forecasting")
-    
-    if not (deps['prophet'] or deps['statsmodels']):
-        st.warning("Install forecasting packages: pip install prophet statsmodels")
-        st.stop()
+        st.subheader("🔮 Price Forecasting")
         
-    periods = st.number_input("Forecast Periods", 30, 365, 90)
-    
-    if deps['prophet']:
-        if st.button("Run Prophet Forecast"):
-            with st.spinner("Running Prophet forecast..."):
-                try:
-                    forecast_df = forecast_prophet(data, periods=periods)
-                    if not forecast_df.empty:
+        if deps['prophet'] or deps['statsmodels']:
+            if deps['prophet'] and deps['statsmodels']:
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**Prophet Forecast**")
+                    periods = st.number_input("Forecast Periods", 30, 365, 90, key="prophet_periods")
+                    if st.button("Run Prophet Forecast"):
+                        with st.spinner("Running Prophet forecast..."):
+                            forecast_df = forecast_prophet(data, periods=periods)
+                            st.line_chart(forecast_df)
+                
+                with col2:
+                    st.markdown("**ARIMA Forecast**")
+                    periods = st.number_input("Forecast Periods", 30, 365, 30, key="arima_periods")
+                    if st.button("Run ARIMA Forecast"):
+                        with st.spinner("Running ARIMA forecast..."):
+                            forecast_df = forecast_arima(data, periods=periods)
+                            st.line_chart(forecast_df)
+            else:
+                model_choice = "Prophet" if deps['prophet'] else "ARIMA"
+                periods = st.number_input("Forecast Periods", 30, 365, 90)
+                if st.button(f"Run {model_choice} Forecast"):
+                    with st.spinner(f"Running {model_choice} forecast..."):
+                        if model_choice == "Prophet":
+                            forecast_df = forecast_prophet(data, periods=periods)
+                        else:
+                            forecast_df = forecast_arima(data, periods=periods)
                         st.line_chart(forecast_df)
-                    else:
-                        st.warning("No forecast data returned")
-                except Exception as e:
-                    st.error(f"Prophet forecast failed: {str(e)}")
-    
-    if deps['statsmodels']:
-        if st.button("Run ARIMA Forecast"):
-            with st.spinner("Running ARIMA forecast..."):
-                try:
-                    forecast_df = forecast_arima(data, periods=periods)
-                    if not forecast_df.empty:
-                        st.line_chart(forecast_df)
-                    else:
-                        st.warning("No forecast data returned")
-                except Exception as e:
-                    st.error(f"ARIMA forecast failed: {str(e)}")
+        else:
+            st.warning("Install forecasting packages: pip install prophet statsmodels")
     
     with tab7:
         st.subheader("⚖️ Portfolio Optimization")
