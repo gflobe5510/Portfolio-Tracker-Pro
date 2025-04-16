@@ -1,137 +1,230 @@
-import yfinance as yf
 import pandas as pd
-import matplotlib.pyplot as plt
-from typing import List, Tuple, Dict, Optional, Union
 import numpy as np
+import plotly.graph_objects as go
 import plotly.express as px
+import streamlit as st
+from datetime import datetime
 
-def load_data(tickers: Union[List[str], str], start: str, end: str, benchmark: str = None) -> Tuple[pd.DataFrame, Optional[pd.Series]]:
-    """Load price data for tickers and optional benchmark"""
+# Configure logger
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def load_local_data(tickers, benchmark, start_date, end_date):
+    """Load and filter price data from local CSV"""
     try:
-        # Load main ticker data
-        data = yf.download(tickers, start=start, end=end, progress=False)["Adj Close"]
-        if isinstance(data, pd.Series):
-            data = data.to_frame()
-        data = data.dropna(how='all', axis=1)
+        # Validate inputs
+        if not tickers:
+            raise ValueError("No tickers selected")
+        if not benchmark:
+            raise ValueError("No benchmark selected")
         
-        # Load benchmark data if specified
-        bench_data = None
-        if benchmark:
-            bench_data = yf.download(benchmark, start=start, end=end, progress=False)["Adj Close"]
-            
-        return data, bench_data
+        # Read only necessary columns to optimize memory
+        usecols = ["Date"] + list(set(tickers + [benchmark]))
+        logger.info(f"Loading columns: {usecols}")
+        
+        # Read CSV with chunking for large files
+        chunks = []
+        for chunk in pd.read_csv("price_data.csv", parse_dates=["Date"], usecols=usecols, chunksize=10000):
+            # Filter dates within each chunk
+            mask = (chunk["Date"] >= pd.to_datetime(start_date)) & (chunk["Date"] <= pd.to_datetime(end_date))
+            filtered_chunk = chunk[mask].copy()
+            if not filtered_chunk.empty:
+                chunks.append(filtered_chunk)
+        
+        if not chunks:
+            raise ValueError("No data available for selected date range")
+        
+        df = pd.concat(chunks)
+        df = df.drop_duplicates(subset=["Date"]).sort_values("Date")
+        df.set_index("Date", inplace=True)
+        
+        # Check for missing data
+        missing_tickers = set(tickers) - set(df.columns)
+        if missing_tickers:
+            st.warning(f"Missing data for: {', '.join(missing_tickers)}")
+            tickers = [t for t in tickers if t in df.columns]
+        
+        if benchmark not in df.columns:
+            raise ValueError(f"Benchmark {benchmark} not found in data")
+        
+        return df[tickers], df[[benchmark]]
+    
     except Exception as e:
-        raise RuntimeError(f"Data loading failed: {str(e)}")
+        logger.error(f"Error in load_local_data: {str(e)}")
+        st.error(f"Data loading error: {str(e)}")
+        raise
 
-def calculate_metrics(data: pd.DataFrame, bench_data: pd.Series = None, risk_free: float = 0.02) -> pd.DataFrame:
+def calculate_metrics(data, weights):
     """Calculate portfolio performance metrics"""
-    returns = data.pct_change().dropna()
-    metrics = pd.DataFrame(index=data.columns)
-    metrics["Annualized Return"] = returns.mean() * 252
-    metrics["Annualized Volatility"] = returns.std() * np.sqrt(252)
-    metrics["Sharpe Ratio"] = (metrics["Annualized Return"] - risk_free) / metrics["Annualized Volatility"]
-    
-    # Calculate max drawdown
-    cumulative = (1 + returns).cumprod()
-    peak = cumulative.expanding(min_periods=1).max()
-    drawdown = (cumulative - peak) / peak
-    metrics["Max Drawdown"] = drawdown.min()
-    
-    if bench_data is not None:
-        bench_returns = bench_data.pct_change().dropna()
-        metrics["Alpha"] = metrics["Annualized Return"] - bench_returns.mean() * 252
-        # Calculate beta for each asset
-        betas = []
-        for col in returns.columns:
-            cov = returns[col].cov(bench_returns)
-            var = bench_returns.var()
-            betas.append(cov / var if var != 0 else np.nan)
-        metrics["Beta"] = betas
-    
-    return metrics
-
-def plot_price_chart(data: pd.DataFrame, benchmark: pd.Series = None):
-    """Plot price history chart"""
-    fig, ax = plt.subplots(figsize=(10, 4))
-    data.plot(ax=ax)
-    if benchmark is not None:
-        benchmark.plot(ax=ax, color='gray', linestyle='--', label='Benchmark')
-    plt.title("Asset Price History")
-    plt.ylabel("Adjusted Close Price")
-    plt.xlabel("Date")
-    plt.legend()
-    return fig
-
-def plot_bar_chart(metrics: pd.DataFrame):
-    """Plot performance metrics as bar chart"""
-    fig, ax = plt.subplots(figsize=(10, 4))
-    metrics[["Annualized Return", "Annualized Volatility"]].plot(kind="bar", ax=ax)
-    plt.title("Return & Volatility")
-    plt.ylabel("Annualized")
-    return fig
-
-def portfolio_performance(weights, mean_returns, cov_matrix):
-    """Compute return, volatility, and Sharpe ratio for given weights"""
-    ret = np.dot(weights, mean_returns) * 252
-    vol = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights))) * np.sqrt(252)
-    sharpe = ret / vol
-    return ret, vol, sharpe
-
-def optimize_portfolio(data: pd.DataFrame, max_allocation: Optional[float] = None) -> Tuple[Dict[str, float], Tuple[float, float, float]]:
-    """Optimize portfolio weights for maximum Sharpe ratio"""
-    from scipy.optimize import minimize
-    returns = data.pct_change().dropna()
-    mean_returns = returns.mean()
-    cov_matrix = returns.cov()
-    num_assets = len(data.columns)
-
-    def negative_sharpe(weights):
-        ret, vol, _ = portfolio_performance(weights, mean_returns, cov_matrix)
-        return -ret/vol  # Negative Sharpe for minimization
-
-    constraints = [{'type': 'eq', 'fun': lambda x: np.sum(x) - 1}]
-    bounds = [(0, max_allocation if max_allocation else 1.0)] * num_assets
-    result = minimize(negative_sharpe, [1 / num_assets] * num_assets, 
-                     bounds=bounds, constraints=constraints)
-
-    if not result.success:
-        raise RuntimeError('Optimization failed')
-
-    opt_weights = dict(zip(data.columns, result.x))
-    performance = portfolio_performance(result.x, mean_returns, cov_matrix)
-    return opt_weights, performance
-
-def monte_carlo_simulation(mu: float, sigma: float, days: int, simulations: int, start_value: float) -> Tuple[np.ndarray, np.ndarray]:
-    """Run Monte Carlo simulation for portfolio projection"""
-    dt = 1/days
-    results = np.zeros((days+1, simulations))
-    results[0] = start_value
-    
-    for t in range(1, days+1):
-        shock = np.random.normal(mu*dt, sigma*np.sqrt(dt), simulations)
-        results[t] = results[t-1] * (1 + shock)
+    try:
+        if data.empty:
+            return pd.DataFrame({
+                "Metric": ["Annual Return", "Volatility", "Sharpe Ratio"],
+                "Value": ["N/A", "N/A", "N/A"]
+            })
         
-    return results[-1], results
+        # Calculate daily returns
+        returns = data.pct_change().dropna()
+        
+        # Calculate weighted portfolio returns
+        weighted_returns = pd.Series(0, index=returns.index)
+        for ticker, weight in weights.items():
+            if ticker in returns.columns:
+                weighted_returns += returns[ticker] * (weight / 100)
+        
+        if len(weighted_returns) < 5:  # Minimum data points requirement
+            return pd.DataFrame({
+                "Metric": ["Annual Return", "Volatility", "Sharpe Ratio"],
+                "Value": ["Insufficient data", "Insufficient data", "Insufficient data"]
+            })
+        
+        # Calculate metrics
+        cumulative_returns = (1 + weighted_returns).cumprod()
+        trading_days = len(cumulative_returns)
+        
+        # Annualized return
+        annual_return = cumulative_returns.iloc[-1] ** (252 / trading_days) - 1
+        
+        # Annualized volatility
+        volatility = weighted_returns.std() * np.sqrt(252)
+        
+        # Sharpe ratio (assuming 0% risk-free rate)
+        sharpe_ratio = annual_return / volatility if volatility != 0 else 0
+        
+        # Max drawdown
+        peak = cumulative_returns.cummax()
+        drawdown = (cumulative_returns - peak) / peak
+        max_drawdown = drawdown.min()
+        
+        return pd.DataFrame({
+            "Metric": [
+                "Annual Return", 
+                "Annual Volatility", 
+                "Sharpe Ratio",
+                "Max Drawdown",
+                "Trading Days"
+            ],
+            "Value": [
+                f"{annual_return:.2%}",
+                f"{volatility:.2%}",
+                f"{sharpe_ratio:.2f}",
+                f"{max_drawdown:.2%}",
+                str(trading_days)
+            ]
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in calculate_metrics: {str(e)}")
+        st.error(f"Metrics calculation error: {str(e)}")
+        return pd.DataFrame()
 
-def get_monte_carlo_stats(ending_values: np.ndarray, start_value: float) -> Dict[str, float]:
-    """Calculate statistics from Monte Carlo simulation results"""
-    return {
-        "mean": float(np.mean(ending_values)),
-        "median": float(np.median(ending_values)),
-        "min": float(np.min(ending_values)),
-        "max": float(np.max(ending_values)),
-        "pct_change": float((np.mean(ending_values) - start_value) / start_value),
-        "std_dev": float(np.std(ending_values))
-    }
+def plot_price_chart(data, benchmark):
+    """Plot normalized price performance chart"""
+    try:
+        if data.empty or benchmark.empty:
+            st.warning("No data available to plot")
+            return
+        
+        fig = go.Figure()
+        
+        # Normalize all data to starting point = 100
+        norm_data = (data / data.iloc[0]) * 100
+        norm_bench = (benchmark / benchmark.iloc[0]) * 100
+        
+        # Add portfolio components
+        for col in norm_data.columns:
+            fig.add_trace(go.Scatter(
+                x=norm_data.index,
+                y=norm_data[col],
+                name=col,
+                mode='lines',
+                hovertemplate="%{y:.2f}%<extra></extra>",
+                line=dict(width=1.5)
+            ))
+        
+        # Add benchmark
+        fig.add_trace(go.Scatter(
+            x=norm_bench.index,
+            y=norm_bench[benchmark.columns[0]],
+            name=f"{benchmark.columns[0]} (Benchmark)",
+            mode='lines',
+            line=dict(dash='dot', width=2, color='black'),
+            hovertemplate="%{y:.2f}%<extra></extra>"
+        ))
+        
+        # Add portfolio weighted average if multiple assets
+        if len(data.columns) > 1:
+            portfolio_avg = norm_data.mean(axis=1)
+            fig.add_trace(go.Scatter(
+                x=portfolio_avg.index,
+                y=portfolio_avg,
+                name="Portfolio Average",
+                mode='lines',
+                line=dict(width=3, color='royalblue'),
+                hovertemplate="%{y:.2f}%<extra></extra>"
+            ))
+        
+        fig.update_layout(
+            title="Normalized Price Performance (Base = 100)",
+            xaxis_title="Date",
+            yaxis_title="Normalized Value (%)",
+            hovermode="x unified",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            margin=dict(l=20, r=20, t=60, b=20),
+            plot_bgcolor='rgba(255,255,255,0.8)',
+            paper_bgcolor='rgba(255,255,255,0.5)',
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+    except Exception as e:
+        logger.error(f"Error in plot_price_chart: {str(e)}")
+        st.error(f"Chart error: {str(e)}")
 
-def plot_monte_carlo_histogram(ending_values: np.ndarray, start_value: float):
-    """Create histogram visualization of Monte Carlo results"""
-    fig = px.histogram(ending_values, nbins=50)
-    fig.update_layout(
-        title=f"Monte Carlo Simulation Results (Start Value: {start_value})",
-        xaxis_title="Portfolio Value",
-        yaxis_title="Frequency"
-    )
-    fig.add_vline(x=start_value, line_dash="dash", line_color="red")
-    fig.add_vline(x=np.mean(ending_values), line_dash="dash", line_color="green")
-    return fig
+def plot_pie_chart(weights):
+    """Plot portfolio allocation pie chart"""
+    try:
+        if not weights:
+            st.warning("No allocation data to display")
+            return
+        
+        # Prepare data
+        labels = list(weights.keys())
+        values = list(weights.values())
+        
+        # Create pie chart
+        fig = go.Figure(data=[go.Pie(
+            labels=labels,
+            values=values,
+            hole=0.4,
+            marker_colors=px.colors.qualitative.Plotly,
+            textinfo='percent+label',
+            insidetextorientation='radial',
+            hoverinfo='label+percent+value',
+            textfont_size=14
+        )])
+        
+        fig.update_layout(
+            title="Portfolio Allocation",
+            uniformtext_minsize=12,
+            uniformtext_mode='hide',
+            margin=dict(t=50, b=20, l=20, r=20),
+            legend=dict(
+                font=dict(size=12)
+            ),
+            plot_bgcolor='rgba(255,255,255,0.8)',
+            paper_bgcolor='rgba(255,255,255,0.5)',
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+    except Exception as e:
+        logger.error(f"Error in plot_pie_chart: {str(e)}")
+        st.error(f"Pie chart error: {str(e)}")
