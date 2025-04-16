@@ -71,21 +71,30 @@ def check_dependencies():
 
 # ========== BACKGROUND IMAGE ==========
 def set_background(image_file):
-"""Set background image - simplified working version"""
-try:
-with open(image_file, "rb") as f:
+    """Set background image - simplified working version"""
+    try:
+        with open(image_file, "rb") as f:
             img_data = f.read()
         b64_encoded = base64.b64encode(img_data).decode()
         st.markdown(
             f"""
             <style>
             .stApp {{
-                background-image: url("data:image/jpeg;base64,{b64_encoded}");
+                background-image: url('data:image/jpeg;base64,{b64_encoded}');
                 background-size: cover;
                 background-position: center;
                 background-attachment: fixed;
             }}
             </style>
+            """,
+            unsafe_allow_html=True
+        )
+    except Exception as e:
+        st.warning(f"Background image error: {str(e)}")
+        st.markdown("""
+        <style>
+        .stApp { background-color: #f0f2f6; }
+        </style>
             """,
             unsafe_allow_html=True
         )
