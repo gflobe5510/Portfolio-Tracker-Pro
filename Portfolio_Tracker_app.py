@@ -940,4 +940,4 @@ def main():
                             mime="application/pdf"
                         )
                 except Exception as e:
-                    st.error(f"Report generation failed: {
+                    st.error(f"Report generation failed: {})
