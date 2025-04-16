@@ -1,3 +1,9 @@
+st.set_page_config(
+    page_title="📊 Portfolio Tracker Pro+",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -13,11 +19,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 from itertools import cycle
 
-st.set_page_config(
-    page_title="📊 Portfolio Tracker Pro+",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+
 
 # ========== DEPENDENCY HANDLING ==========
 def check_dependencies():
