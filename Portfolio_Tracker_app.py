@@ -13,6 +13,13 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 from itertools import cycle
 
+st.set_page_config(
+    page_title="📊 Portfolio Tracker Pro+",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+
 # ========== DEPENDENCY HANDLING ==========
 def check_dependencies():
     """Check and initialize optional dependencies"""
@@ -224,8 +231,6 @@ def forecast_arima(data, periods=30):
     from statsmodels.tsa.arima.model import ARIMA
     forecasts = {}
 
-st.set_page_config(
-    current_date = pd.Timestamp.now().normalize()
 
     for ticker in data.columns:
         # Get data and ensure proper datetime index
