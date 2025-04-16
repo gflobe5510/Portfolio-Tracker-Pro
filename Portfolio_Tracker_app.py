@@ -18,6 +18,7 @@ from portfolio import load_data, calculate_metrics, plot_price_chart, plot_bar_c
 from pdf_utils import create_pdf_report
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
+from scipy.optimize import minimize
 from itertools import cycle
 
 
@@ -46,18 +47,33 @@ def check_dependencies():
     return dependencies
 
 deps = check_dependencies()
+def check_dependencies():
+    pass
 
 # ========== CONFIGURATION ==========
-    page_title="📊 Portfolio Tracker Pro+",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+def check_dependencies():
+    """Check and initialize optional dependencies"""
+    dependencies = {
+        'prophet': False,
+        'statsmodels': False
+    }
+    try:
+        from prophet import Prophet
+        dependencies['prophet'] = True
+    except ImportError:
+        pass
+    try:
+        from statsmodels.tsa.arima.model import ARIMA
+        dependencies['statsmodels'] = True
+    except ImportError:
+        pass
+    return dependencies
 
 # ========== BACKGROUND IMAGE ==========
 def set_background(image_file):
-    """Set background image - simplified working version"""
-    try:
-        with open(image_file, "rb") as f:
+"""Set background image - simplified working version"""
+try:
+with open(image_file, "rb") as f:
             img_data = f.read()
         b64_encoded = base64.b64encode(img_data).decode()
         st.markdown(
@@ -185,6 +201,7 @@ def plot_comparison_chart(portfolio_df, benchmark_df):
     return fig
 
 def plot_correlation_matrix(data):
+    pass
     corr = data.pct_change().corr()
     fig = ff.create_annotated_heatmap(
         z=corr.values,
