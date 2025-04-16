@@ -1,9 +1,11 @@
 import streamlit as st
+
 st.set_page_config(
     page_title="Portfolio Tracker Pro+",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
 import pandas as pd
 import numpy as np
 import base64
